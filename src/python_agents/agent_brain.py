@@ -1,8 +1,11 @@
 import chromadb
+import json
+import os
 import zmq
 
 from typing import TypedDict
 from chromadb.utils import embedding_functions
+from langchain_community.llms import Ollama
 from langgraph.graph import StateGraph, END
 
 # Get DB PATH from env
@@ -32,6 +35,12 @@ def seed_historical_data():
         )
 
 # ==========================================
+# 2. INITIALIZE LOCAL LLM ENGINE
+# ==========================================
+# Connecting directly to your background Ollama service running on your Mac
+llm = Ollama(model="llama3:latest", temperature=0.0)
+
+# ==========================================
 # 2. DEFINE LANGGRAPH STATE
 # ==========================================
 # This class acts as the shared memory ledger between our agents
@@ -39,6 +48,7 @@ class AgentState(TypedDict):
     raw_headline: str
     historical_context: str
     sentiment_score: float
+    rationale: str
     risk_action: str  # "APPROVED" or "BLOCKED"
 
 # ==========================================
@@ -54,11 +64,44 @@ def analyst_node(state: AgentState) -> dict:
     results = collection.query(query_texts=[headline], n_results=1)
     context = results['documents'][0][0] if results['documents'] else "No context found"
     
-    # Simple semantic rule-engine for sentiment score
-    score = 0.85 if "surge" in context or "bullish" in context else -0.75
+    # Construct a strict prompt demanding structured JSON back from the model
+    prompt = f"""
+    You are an expert quantitative trading research agent. 
+    Analyze the incoming market headline relative to the provided historical context.
     
-    print(f"[Analyst Agent] Found History: \"{context}\" -> Sentiment: {score}")
-    return {"historical_context": context, "sentiment_score": score}
+    Incoming Headline: "{headline}"
+    Historical Precedent: "{context}"
+    
+    Determine the immediate market sentiment impact. 
+    Your response must be a valid raw JSON object exactly following this schema:
+    {{
+        "sentiment_score": <float between -1.0 for severe panic and +1.0 for massive rally>,
+        "rationale": "<one short sentence explaining your mathematical decision process>"
+    }}
+    Do not return any conversational text, markdown formatting, or wrappers. Return ONLY raw JSON.
+    """
+
+    print(f"\n[Analyst Agent] Asking Local LLM for contextual evaluation...")
+    llm_response = llm.invoke(prompt).strip()
+
+    # Parse the structured intelligence output safely
+    try:
+        # Strip away markdown syntax backticks if the model accidentally included them
+        if "```json" in llm_response:
+            llm_response = llm_response.split("```json")[1].split("```")[0].strip()
+        elif "```" in llm_response:
+            llm_response = llm_response.split("```")[1].strip()
+            
+        parsed_data = json.loads(llm_response)
+        score = float(parsed_data.get("sentiment_score", 0.0))
+        reason = parsed_data.get("rationale", "Parsed successfully.")
+    except Exception as e:
+        print(f"[Analyst Error] Failed to parse JSON from LLM: {llm_response}. Falling back to default metrics.")
+        score = 0.0
+        reason = f"Fallback due to structural parsing error: {str(e)}"
+        
+    print(f"[Analyst Agent] LLM Score: {score} | Reason: {reason}")
+    return {"historical_context": context, "sentiment_score": score, "rationale": reason}
 
 def risk_gatekeeper_node(state: AgentState) -> dict:
     """Evaluates if the sentiment signal violates safety risk boundaries."""
