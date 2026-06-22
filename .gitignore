@@ -1,0 +1,26 @@
+# === C++ Build Artefacts ===
+build/
+*.o
+*.out
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+
+# === Python Virtual Environments ===
+.venv/
+env/
+velorag/
+__pycache__/
+*.pyc
+
+# === Local AI & Database Storage ===
+chroma_storage/
+data_input/
+*.db
+*.log
+
+# === OS Specific Files ===
+.DS_Store
+Thmubs.db
+src/.env
