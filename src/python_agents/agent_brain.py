@@ -117,6 +117,35 @@ def risk_gatekeeper_node(state: AgentState) -> dict:
     print(f"[Risk Agent] Action Decision: {action}")
     return {"risk_action": action}
 
+def execution_agent_node(state: AgentState) -> dict:
+    """Simulates algorithmic execution for high-conviction signals."""
+    score = state["sentiment_score"]
+    direction = "LONG" if score > 0 else "SHORT"
+    
+    # Simple simulated position sizing logic based on signal strength
+    simulated_size = round(abs(score) * 10000, 2) 
+    
+    print(f"\n[Execution Agent] High-Conviction Signal Detected ({score})")
+    print(f"[Execution Agent] Preparing Mock Order for execution: {direction} | Size: ${simulated_size}")
+    
+    return {"rationale": f"{state['rationale']} | Executed mock {direction} size: ${simulated_size}"}
+
+# ==========================================
+# 2. DEFINE THE CONDITIONAL ROUTING LOGIC
+# ==========================================
+def routing_router(state: AgentState) -> str:
+    """Evaluates the state content dynamically to choose the next node."""
+    score = state["sentiment_score"]
+    
+    # If absolute sentiment is high, route to execution pipeline
+    if abs(score) > 0.60:
+        print("[Router] Routing to -> EXECUTION_ENGINE")
+        return "execution_engine"
+    
+    # Otherwise, bypass execution entirely
+    print("[Router] Low conviction signal. Routing straight to -> RISK_GATEKEEPER")
+    return "risk_gatekeeper"
+
 # ==========================================
 # 4. BUILD THE GRAPH COMPILATION
 # ==========================================
@@ -126,11 +155,24 @@ workflow = StateGraph(AgentState)
 
 # Add our processing units (Nodes)
 workflow.add_node("analyst", analyst_node)
+workflow.add_node("execution_engine", execution_agent_node)
 workflow.add_node("risk_gatekeeper", risk_gatekeeper_node)
 
 # Connect nodes together linearly (Edges)
 workflow.set_entry_point("analyst")
-workflow.add_edge("analyst", "risk_gatekeeper")
+
+# Conditional Edge split coming out of the Analyst Node
+workflow.add_conditional_edges(
+    "analyst",
+    routing_router,
+    {
+        "execution_engine": "execution_engine",
+        "risk_gatekeeper": "risk_gatekeeper"
+    }
+)
+
+# Execution path back down into the final risk_gatekeeper
+workflow.add_edge("execution_engine", "risk_gatekeeper")
 workflow.add_edge("risk_gatekeeper", END)
 
 # Compile into an executable application
