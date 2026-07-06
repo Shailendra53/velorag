@@ -4,3 +4,5 @@ langchain>=0.1.0
 langchain-community>=0.1.0
 langgraph>=0.0.26
 openai>=1.10.0
+pyzmq>=25.0.0
+python-dotenv>=1.0.0
